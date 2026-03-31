@@ -481,11 +481,33 @@ async function save() {
 
 const BLOCKS = ['Chest / Back', 'Shoulders / Arms', 'Legs'];
 
-const EXERCISE_LIBRARY = {
+const DEFAULT_EXERCISE_LIBRARY = {
   'Chest / Back': ['Supine Chest Press','Incline Dumbbell Press','Pec Fly','Seated Cable Row (medium wide attachment)','Lat Pulldown','Cable Row','Pull-up','Face Pull'],
   'Shoulders / Arms': ['Chest Supported Row','Machine Curls','Overhead Cable Extension','Pushdown','Lateral Raise','Arnold Press','EZ Bar Curl','Hammer Curl','Skull Crusher'],
   'Legs': ['Hack Squat','Leg Curl','Leg Extension','Pin-Loaded Leg Press','Seated Calf Extension','Ab Crunch Machine','Romanian Deadlift','Leg Press','Standing Calf Raise'],
 };
+
+const CUSTOM_EXERCISE_LIBRARY_KEY = 'customExerciseLibrary';
+let customExerciseLibrary = {};
+
+function getExerciseOptions(block) {
+  const defaults = DEFAULT_EXERCISE_LIBRARY[block] || [];
+  const custom = customExerciseLibrary[block] || [];
+  return [...new Set([...defaults, ...custom])];
+}
+
+async function saveCustomExerciseLibrary() {
+  await storageSet(CUSTOM_EXERCISE_LIBRARY_KEY, customExerciseLibrary);
+}
+
+async function ensureExerciseInLibrary(block, name) {
+  const trimmed = String(name || '').trim();
+  if (!trimmed) return;
+  if (getExerciseOptions(block).includes(trimmed)) return;
+  if (!customExerciseLibrary[block]) customExerciseLibrary[block] = [];
+  customExerciseLibrary[block].push(trimmed);
+  await saveCustomExerciseLibrary();
+}
 
 const SEED_DATA = {
   'Chest / Back': [{
@@ -863,9 +885,9 @@ function renderSession(session, si) {
       ${renderPrevSessionPanel(si)}
       ${session.exercises.map((ex, ei) => renderExercise(si, ei, ex)).join('')}
       <div class="add-exercise-row">
-        <input class="exercise-select-input" id="exInput-${si}" list="exList-${si}" placeholder="Add exercise…">
+        <input class="exercise-select-input" id="exInput-${si}" list="exList-${si}" placeholder="Add or type custom exercise…">
         <datalist id="exList-${si}">
-          ${(EXERCISE_LIBRARY[currentBlock] || []).map(e => `<option value="${e}">`).join('')}
+          ${getExerciseOptions(currentBlock).map(e => `<option value="${e}">`).join('')}
         </datalist>
         <button class="btn btn-ghost btn-small" onclick="addExercise(${si})">+ ADD</button>
       </div>
@@ -1037,7 +1059,7 @@ function createEmptySet() {
 }
 
 function buildDefaultExercisesForBlock(block) {
-  return (EXERCISE_LIBRARY[block] || []).map(name => ({
+  return getExerciseOptions(block).map(name => ({
     name,
     sets: [createEmptySet()],
   }));
@@ -1065,11 +1087,13 @@ function deleteSession(si) {
   save(); renderBlock();
 }
 
-function addExercise(si) {
+async function addExercise(si) {
   const input = document.getElementById(`exInput-${si}`);
   const name = input.value.trim();
   if (!name) return;
+  await ensureExerciseInLibrary(currentBlock, name);
   state[currentBlock][si].exercises.push({ name, sets: [createEmptySet()] });
+  input.value = '';
   save(); renderBlock();
 }
 
@@ -1107,14 +1131,16 @@ function formatDate(d) {
 
 async function init() {
   await openDB();
-  const [saved, savedBackups, savedBackupMeta] = await Promise.all([
+  const [saved, savedBackups, savedBackupMeta, savedCustomExerciseLibrary] = await Promise.all([
     storageGet('state'),
     storageGet(AUTO_BACKUP_KEY),
     storageGet(AUTO_BACKUP_META_KEY),
+    storageGet(CUSTOM_EXERCISE_LIBRARY_KEY),
   ]);
   state = saved || SEED_DATA;
   autoBackups = Array.isArray(savedBackups) ? savedBackups : [];
   backupMeta = savedBackupMeta || { lastSavedAt: null, lastAutoBackupAt: null };
+  customExerciseLibrary = savedCustomExerciseLibrary || {};
   document.getElementById('todayBadge').textContent = formatDate(today());
   renderTabs();
   renderBlock();
@@ -1132,6 +1158,7 @@ init().catch(err => {
   state = localGet('state') || localGet('ironRecord_v2') || SEED_DATA;
   autoBackups = localGet(AUTO_BACKUP_KEY) || [];
   backupMeta = localGet(AUTO_BACKUP_META_KEY) || { lastSavedAt: null, lastAutoBackupAt: null };
+  customExerciseLibrary = localGet(CUSTOM_EXERCISE_LIBRARY_KEY) || {};
   document.getElementById('todayBadge').textContent = formatDate(today());
   renderTabs();
   renderBlock();
