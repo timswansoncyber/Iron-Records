@@ -1,10 +1,10 @@
-const CACHE_NAME = 'iron-record-v1';
+const CACHE_NAME = 'iron-record-v2';
 const APP_ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
   './service-worker.js',
-  './icons/icon.svg',
+  './icons/logo-full.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/apple-touch-icon.png'
