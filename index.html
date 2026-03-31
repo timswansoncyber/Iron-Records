@@ -1032,6 +1032,17 @@ function toggleHistoryCard(key) { historyExpanded[key] = !historyExpanded[key]; 
 function setHistoryFilter(f) { historyFilter = f; historyExpanded = {}; renderHistory(); }
 function setHistorySort(v) { historySort = v; renderHistory(); }
 
+function createEmptySet() {
+  return { load:'', reps:'', rir:'', notes:'', target:'' };
+}
+
+function buildDefaultExercisesForBlock(block) {
+  return (EXERCISE_LIBRARY[block] || []).map(name => ({
+    name,
+    sets: [createEmptySet()],
+  }));
+}
+
 function toggleSession(si) {
   state[currentBlock][si].collapsed = !state[currentBlock][si].collapsed;
   save(); renderBlock();
@@ -1040,7 +1051,11 @@ function toggleSession(si) {
 function addSession() {
   const d = document.getElementById('newSessionDate').value || today();
   if (!state[currentBlock]) state[currentBlock] = [];
-  state[currentBlock].push({ date: d, collapsed: false, exercises: [] });
+  state[currentBlock].push({
+    date: d,
+    collapsed: false,
+    exercises: buildDefaultExercisesForBlock(currentBlock),
+  });
   save(); renderBlock();
 }
 
@@ -1054,7 +1069,7 @@ function addExercise(si) {
   const input = document.getElementById(`exInput-${si}`);
   const name = input.value.trim();
   if (!name) return;
-  state[currentBlock][si].exercises.push({ name, sets: [{load:'',reps:'',rir:'',notes:'',target:''}] });
+  state[currentBlock][si].exercises.push({ name, sets: [createEmptySet()] });
   save(); renderBlock();
 }
 
@@ -1064,7 +1079,7 @@ function deleteExercise(si, ei) {
 }
 
 function addSet(si, ei) {
-  state[currentBlock][si].exercises[ei].sets.push({load:'',reps:'',rir:'',notes:'',target:''});
+  state[currentBlock][si].exercises[ei].sets.push(createEmptySet());
   save(); renderBlock();
 }
 
