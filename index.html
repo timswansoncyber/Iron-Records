@@ -758,6 +758,95 @@ function togglePrevPanel(si) {
   renderBlock();
 }
 
+function parsePrimaryNumber(value) {
+  const match = String(value || '').match(/-?\d+(?:\.\d+)?/);
+  return match ? Number(match[0]) : null;
+}
+
+function parseLoadValue(load) {
+  const raw = String(load || '').trim();
+  if (!raw) return null;
+  const match = raw.match(/^(\d+(?:\.\d+)?)(.*)$/);
+  if (!match) return null;
+  return {
+    value: Number(match[1]),
+    suffix: match[2] || '',
+  };
+}
+
+function formatLoadValue(loadValue, suffix = '') {
+  if (!Number.isFinite(loadValue)) return '';
+  const rounded = Number.isInteger(loadValue) ? String(loadValue) : loadValue.toFixed(1).replace(/\.0$/, '');
+  return `${rounded}${suffix}`;
+}
+
+function loadIncrementFor(setLoad) {
+  if (!setLoad) return 5;
+  if (setLoad.suffix.trim().toLowerCase() === 's') return 5;
+  if (!Number.isInteger(setLoad.value)) return 2.5;
+  if (setLoad.value >= 200) return 10;
+  return 5;
+}
+
+function buildTargetFromSet(set) {
+  const load = parseLoadValue(set.load);
+  const reps = parsePrimaryNumber(set.reps);
+  if (!load || reps === null) return set.target || '';
+
+  const rirText = String(set.rir || '').toLowerCase();
+  const rir = parsePrimaryNumber(set.rir);
+  const hitTopEnd = reps >= 12 || (rir !== null && rir >= 2);
+  const shouldAddLoad = hitTopEnd && !rirText.includes('fail');
+
+  if (shouldAddLoad) {
+    const nextLoad = formatLoadValue(load.value + loadIncrementFor(load), load.suffix);
+    return `${nextLoad} × ${reps}`;
+  }
+
+  return `${formatLoadValue(load.value, load.suffix)} × ${reps + 1}`;
+}
+
+function findPreviousExercise(si, exerciseName) {
+  for (let i = si - 1; i >= 0; i--) {
+    const prevSession = state[currentBlock]?.[i];
+    const prevExercise = prevSession?.exercises?.find(ex => ex.name === exerciseName);
+    if (prevExercise) return prevExercise;
+  }
+  return null;
+}
+
+function generateTargetsForSession(si) {
+  const session = state[currentBlock]?.[si];
+  if (!session) return;
+
+  let updatedSets = 0;
+  let matchedExercises = 0;
+
+  session.exercises.forEach(exercise => {
+    const previousExercise = findPreviousExercise(si, exercise.name);
+    if (!previousExercise) return;
+    matchedExercises += 1;
+
+    exercise.sets.forEach((set, setIndex) => {
+      const sourceSet = previousExercise.sets[setIndex] || previousExercise.sets[previousExercise.sets.length - 1];
+      if (!sourceSet) return;
+      const target = buildTargetFromSet(sourceSet);
+      if (!target) return;
+      set.target = target;
+      updatedSets += 1;
+    });
+  });
+
+  if (!updatedSets) {
+    alert('No previous matching exercises were found for this session yet.');
+    return;
+  }
+
+  save();
+  renderBlock();
+  alert(`Generated ${updatedSets} targets across ${matchedExercises} exercise${matchedExercises === 1 ? '' : 's'}.`);
+}
+
 function renderSession(session, si) {
   const exCount = session.exercises.length;
   const setCount = session.exercises.reduce((a, e) => a + e.sets.length, 0);
@@ -781,6 +870,7 @@ function renderSession(session, si) {
         <button class="btn btn-ghost btn-small" onclick="addExercise(${si})">+ ADD</button>
       </div>
       <div class="session-actions">
+        <button class="btn btn-ghost btn-small" onclick="generateTargetsForSession(${si})">◎ GENERATE TARGETS</button>
         <button class="btn btn-danger btn-small" onclick="deleteSession(${si})">✕ DELETE SESSION</button>
       </div>
     </div>
