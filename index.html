@@ -1054,6 +1054,32 @@ function toggleHistoryCard(key) { historyExpanded[key] = !historyExpanded[key]; 
 function setHistoryFilter(f) { historyFilter = f; historyExpanded = {}; renderHistory(); }
 function setHistorySort(v) { historySort = v; renderHistory(); }
 
+function getNextBlockInSplit(block) {
+  const index = BLOCKS.indexOf(block);
+  if (index === -1) return BLOCKS[0];
+  return BLOCKS[(index + 1) % BLOCKS.length];
+}
+
+function getLatestLoggedSessionInfo() {
+  let latest = null;
+
+  BLOCKS.forEach((block, blockIndex) => {
+    (state[block] || []).forEach((session, sessionIndex) => {
+      const stamp = session.date || '';
+      if (!latest || stamp > latest.date || (stamp === latest.date && sessionIndex >= latest.sessionIndex && blockIndex >= latest.blockIndex)) {
+        latest = { block, blockIndex, sessionIndex, date: stamp };
+      }
+    });
+  });
+
+  return latest;
+}
+
+function getSuggestedNextBlock() {
+  const latest = getLatestLoggedSessionInfo();
+  return latest ? getNextBlockInSplit(latest.block) : BLOCKS[0];
+}
+
 function createEmptySet() {
   return { load:'', reps:'', rir:'', notes:'', target:'' };
 }
@@ -1072,13 +1098,17 @@ function toggleSession(si) {
 
 function addSession() {
   const d = document.getElementById('newSessionDate').value || today();
-  if (!state[currentBlock]) state[currentBlock] = [];
-  state[currentBlock].push({
+  const targetBlock = getSuggestedNextBlock();
+  currentBlock = targetBlock;
+  if (!state[targetBlock]) state[targetBlock] = [];
+  state[targetBlock].push({
     date: d,
     collapsed: false,
-    exercises: buildDefaultExercisesForBlock(currentBlock),
+    exercises: buildDefaultExercisesForBlock(targetBlock),
   });
-  save(); renderBlock();
+  save();
+  renderTabs();
+  renderBlock();
 }
 
 function deleteSession(si) {
@@ -1141,6 +1171,7 @@ async function init() {
   autoBackups = Array.isArray(savedBackups) ? savedBackups : [];
   backupMeta = savedBackupMeta || { lastSavedAt: null, lastAutoBackupAt: null };
   customExerciseLibrary = savedCustomExerciseLibrary || {};
+  currentBlock = getSuggestedNextBlock();
   document.getElementById('todayBadge').textContent = formatDate(today());
   renderTabs();
   renderBlock();
@@ -1159,6 +1190,7 @@ init().catch(err => {
   autoBackups = localGet(AUTO_BACKUP_KEY) || [];
   backupMeta = localGet(AUTO_BACKUP_META_KEY) || { lastSavedAt: null, lastAutoBackupAt: null };
   customExerciseLibrary = localGet(CUSTOM_EXERCISE_LIBRARY_KEY) || {};
+  currentBlock = getSuggestedNextBlock();
   document.getElementById('todayBadge').textContent = formatDate(today());
   renderTabs();
   renderBlock();
