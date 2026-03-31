@@ -1,9 +1,11 @@
-const CACHE_NAME = 'iron-record-v2';
+const CACHE_NAME = 'iron-record-v3';
 const APP_ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
   './service-worker.js',
+  './icons/favicon-16.png',
+  './icons/favicon-32.png',
   './icons/logo-full.png',
   './icons/icon-192.png',
   './icons/icon-512.png',
