@@ -11,9 +11,9 @@
 <meta name="mobile-web-app-capable" content="yes">
 <title>Iron Record</title>
 <link rel="manifest" href="./manifest.webmanifest">
-<link rel="icon" href="./icons/favicon-32.png?v=3" type="image/png" sizes="32x32">
-<link rel="icon" href="./icons/favicon-16.png?v=3" type="image/png" sizes="16x16">
-<link rel="shortcut icon" href="./icons/favicon-32.png?v=3" type="image/png">
+<link rel="icon" href="./icons/favicon-32.png?v=4" type="image/png" sizes="32x32">
+<link rel="icon" href="./icons/favicon-16.png?v=4" type="image/png" sizes="16x16">
+<link rel="shortcut icon" href="./icons/favicon-32.png?v=4" type="image/png">
 <link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@300;400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
@@ -893,6 +893,7 @@ function renderSession(session, si) {
       </div>
       <div class="session-actions">
         <button class="btn btn-ghost btn-small" onclick="generateTargetsForSession(${si})">◎ GENERATE TARGETS</button>
+        <button class="btn btn-danger btn-small" onclick="removeAllExercises(${si})">✕ REMOVE ALL EXERCISES</button>
         <button class="btn btn-danger btn-small" onclick="deleteSession(${si})">✕ DELETE SESSION</button>
       </div>
     </div>
@@ -1091,6 +1092,18 @@ function buildDefaultExercisesForBlock(block) {
   }));
 }
 
+function buildExercisesFromPreviousSession(block) {
+  const sessions = state[block] || [];
+  const previous = sessions[sessions.length - 1];
+  if (previous && previous.exercises && previous.exercises.length) {
+    return previous.exercises.map(ex => ({
+      name: ex.name,
+      sets: ex.sets.map(() => createEmptySet()),
+    }));
+  }
+  return buildDefaultExercisesForBlock(block);
+}
+
 function toggleSession(si) {
   state[currentBlock][si].collapsed = !state[currentBlock][si].collapsed;
   save(); renderBlock();
@@ -1104,7 +1117,7 @@ function addSession() {
   state[targetBlock].push({
     date: d,
     collapsed: false,
-    exercises: buildDefaultExercisesForBlock(targetBlock),
+    exercises: buildExercisesFromPreviousSession(targetBlock),
   });
   save();
   renderTabs();
@@ -1129,6 +1142,12 @@ async function addExercise(si) {
 
 function deleteExercise(si, ei) {
   state[currentBlock][si].exercises.splice(ei, 1);
+  save(); renderBlock();
+}
+
+function removeAllExercises(si) {
+  if (!confirm('Remove all exercises from this session?')) return;
+  state[currentBlock][si].exercises = [];
   save(); renderBlock();
 }
 
