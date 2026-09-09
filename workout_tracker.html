@@ -131,6 +131,7 @@
     padding: 10px 14px 6px;
     background: rgba(255,255,255,0.02);
   }
+  .exercise-name-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
   .exercise-label {
     font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 1px;
     color: var(--text); text-transform: uppercase;
@@ -139,6 +140,28 @@
     font-size: 9px; background: rgba(245,166,35,0.15); color: var(--warn);
     border: 1px solid rgba(245,166,35,0.3); padding: 2px 6px; border-radius: 2px;
     font-family: 'DM Mono', monospace; letter-spacing: 1px; margin-left: 8px;
+  }
+
+  /* EXERCISE REORDERING */
+  .drag-handle {
+    cursor: grab; color: var(--muted); font-size: 14px; line-height: 1;
+    padding: 4px 2px; touch-action: none; user-select: none; -webkit-user-select: none;
+    flex-shrink: 0;
+  }
+  .drag-handle:hover { color: var(--text); }
+  .drag-handle:active { cursor: grabbing; color: var(--accent); }
+  .exercise-block.dragging-source { opacity: 0.35; }
+  .exercise-block.drag-over-before { box-shadow: inset 0 2px 0 0 var(--accent); }
+  .exercise-block.drag-over-after { box-shadow: inset 0 -2px 0 0 var(--accent); }
+  .exercise-drag-ghost {
+    position: fixed; z-index: 9999; pointer-events: none;
+    background: var(--surface2); border: 1px solid var(--accent-mid);
+    border-radius: 4px; padding: 8px 14px;
+    font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 1px;
+    color: var(--text); text-transform: uppercase;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.5);
+    opacity: 0.95; transform: translate(-50%, -50%);
+    max-width: 240px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
 
   /* Fix: wrap table in scrollable container */
@@ -775,9 +798,12 @@ function renderSession(session, si) {
 
 function renderExercise(si, ei, ex) {
   return `
-  <div class="exercise-block">
+  <div class="exercise-block" data-si="${si}" data-ei="${ei}">
     <div class="exercise-name-row">
-      <span class="exercise-label">${ex.name} ${ex.unclear ? '<span class="unclear-badge">UNCLEAR</span>' : ''}</span>
+      <span class="exercise-name-left">
+        <span class="drag-handle" onpointerdown="startExerciseDrag(event,${si},${ei})" title="Drag to reorder">⠿</span>
+        <span class="exercise-label">${ex.name} ${ex.unclear ? '<span class="unclear-badge">UNCLEAR</span>' : ''}</span>
+      </span>
       <button class="btn btn-danger btn-small" onclick="deleteExercise(${si},${ei})">✕</button>
     </div>
     <div class="table-scroll">
@@ -957,6 +983,102 @@ function addExercise(si) {
 function deleteExercise(si, ei) {
   state[currentBlock][si].exercises.splice(ei, 1);
   save(); renderBlock();
+}
+
+// ─── EXERCISE REORDER (drag & drop) ───────────────────────────────────────────
+
+let exDrag = null;
+
+function startExerciseDrag(e, si, ei) {
+  if (e.button !== undefined && e.button !== 0) return;
+  e.preventDefault();
+  const handle = e.currentTarget;
+  const sourceBlock = handle.closest('.exercise-block');
+  if (!sourceBlock) return;
+
+  exDrag = { si, fromEi: ei, overEi: ei, overEdge: 'before', sourceBlock };
+  sourceBlock.classList.add('dragging-source');
+  try { handle.setPointerCapture(e.pointerId); } catch (err) {}
+
+  const ghost = document.createElement('div');
+  ghost.className = 'exercise-drag-ghost';
+  const label = sourceBlock.querySelector('.exercise-label');
+  ghost.textContent = label ? label.textContent.trim() : 'EXERCISE';
+  ghost.style.left = e.clientX + 'px';
+  ghost.style.top = e.clientY + 'px';
+  document.body.appendChild(ghost);
+  exDrag.ghost = ghost;
+
+  document.addEventListener('pointermove', onExerciseDragMove);
+  document.addEventListener('pointerup', endExerciseDrag);
+  document.addEventListener('pointercancel', cancelExerciseDrag);
+}
+
+function onExerciseDragMove(e) {
+  if (!exDrag) return;
+  e.preventDefault();
+  exDrag.ghost.style.left = e.clientX + 'px';
+  exDrag.ghost.style.top = e.clientY + 'px';
+
+  clearDragOverClasses();
+
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const block = el && el.closest ? el.closest(`#session-${exDrag.si} .exercise-block`) : null;
+  if (!block) { exDrag.overEi = null; return; }
+
+  const targetEi = parseInt(block.dataset.ei, 10);
+  const rect = block.getBoundingClientRect();
+  const edge = (e.clientY - rect.top) < rect.height / 2 ? 'before' : 'after';
+
+  exDrag.overEi = targetEi;
+  exDrag.overEdge = edge;
+  block.classList.add(edge === 'before' ? 'drag-over-before' : 'drag-over-after');
+
+  autoScrollIfNeeded(e.clientY);
+}
+
+function clearDragOverClasses() {
+  document.querySelectorAll('.exercise-block.drag-over-before, .exercise-block.drag-over-after')
+    .forEach(el => el.classList.remove('drag-over-before', 'drag-over-after'));
+}
+
+function autoScrollIfNeeded(clientY) {
+  const margin = 60, speed = 14;
+  if (clientY < margin) window.scrollBy(0, -speed);
+  else if (clientY > window.innerHeight - margin) window.scrollBy(0, speed);
+}
+
+function endExerciseDrag() {
+  if (!exDrag) return;
+  const { si, fromEi, overEi, overEdge } = exDrag;
+  finishExerciseDragCleanup();
+
+  if (overEi === null || overEi === undefined) return;
+
+  let toIndex = overEdge === 'before' ? overEi : overEi + 1;
+  if (toIndex > fromEi) toIndex -= 1;
+  if (toIndex === fromEi) return;
+
+  const arr = state[currentBlock][si].exercises;
+  const [moved] = arr.splice(fromEi, 1);
+  arr.splice(toIndex, 0, moved);
+  save();
+  renderBlock();
+}
+
+function cancelExerciseDrag() {
+  finishExerciseDragCleanup();
+}
+
+function finishExerciseDragCleanup() {
+  if (!exDrag) return;
+  clearDragOverClasses();
+  if (exDrag.sourceBlock) exDrag.sourceBlock.classList.remove('dragging-source');
+  if (exDrag.ghost) exDrag.ghost.remove();
+  document.removeEventListener('pointermove', onExerciseDragMove);
+  document.removeEventListener('pointerup', endExerciseDrag);
+  document.removeEventListener('pointercancel', cancelExerciseDrag);
+  exDrag = null;
 }
 
 function addSet(si, ei) {
