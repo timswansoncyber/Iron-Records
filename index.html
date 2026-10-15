@@ -68,17 +68,26 @@
     width: min(180px, 26vw);
     height: auto;
   }
+  .header-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .date-badge {
     font-family: 'DM Mono', monospace; font-size: 11px; color: var(--muted);
     border: 1px solid var(--border); padding: 6px 12px; border-radius: 3px;
+  }
+  .split-select {
+    background: var(--surface); border: 1px solid var(--border); color: var(--accent);
+    font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;
+    padding: 6px 10px; border-radius: 3px; outline: none; cursor: pointer;
   }
 
   /* TABS */
   .tabs {
     display: flex; gap: 4px; margin-bottom: 28px;
     border-bottom: 1px solid var(--border); padding-bottom: 0;
+    overflow-x: auto; scrollbar-width: none;
   }
+  .tabs::-webkit-scrollbar { display: none; }
   .tab {
+    flex-shrink: 0; white-space: nowrap;
     font-family: 'DM Mono', monospace; font-size: 11px; letter-spacing: 2px; text-transform: uppercase;
     padding: 10px 18px; cursor: pointer; border: none; background: none; color: var(--muted);
     border-bottom: 2px solid transparent; margin-bottom: -1px; transition: all 0.15s;
@@ -265,6 +274,9 @@
   .pill-chest { color: #7eb8f7; border-color: rgba(126,184,247,0.3); background: rgba(126,184,247,0.08); }
   .pill-shoulders { color: #c084fc; border-color: rgba(192,132,252,0.3); background: rgba(192,132,252,0.08); }
   .pill-legs { color: #fb923c; border-color: rgba(251,146,60,0.3); background: rgba(251,146,60,0.08); }
+  .pill-push { color: #f87171; border-color: rgba(248,113,113,0.3); background: rgba(248,113,113,0.08); }
+  .pill-pull { color: #4ade80; border-color: rgba(74,222,128,0.3); background: rgba(74,222,128,0.08); }
+  .pill-accessory { color: #facc15; border-color: rgba(250,204,21,0.3); background: rgba(250,204,21,0.08); }
   .history-date { font-family: 'DM Mono', monospace; font-size: 12px; color: var(--accent); }
   .history-stats { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--muted); }
   .history-exercises-preview {
@@ -334,7 +346,10 @@
     <div class="logo">
       <img src="./icons/logo-full.png" alt="Iron Record">
     </div>
-    <div class="date-badge" id="todayBadge"></div>
+    <div class="header-right">
+      <select class="split-select" id="splitSelect" onchange="setActiveSplit(this.value)" aria-label="Training split"></select>
+      <div class="date-badge" id="todayBadge"></div>
+    </div>
   </header>
 
   <div class="tabs" id="tabs"></div>
@@ -479,12 +494,32 @@ async function save() {
 
 // ─── DATA ───────────────────────────────────────────────────────────────────
 
-const BLOCKS = ['Chest / Back', 'Shoulders / Arms', 'Legs'];
+// Each split is an ordered rotation of blocks. Blocks are shared across splits
+// (e.g. 'Legs' history carries over between Arnold, PPL and Anatoly).
+const SPLITS = {
+  arnold:  { name: 'Arnold Split', blocks: ['Chest / Back', 'Shoulders / Arms', 'Legs'] },
+  ppl:     { name: 'Push / Pull / Legs', blocks: ['Push', 'Pull', 'Legs'] },
+  anatoly: { name: 'Anatoly Split', blocks: ['Legs', 'Push', 'Pull', 'Accessory'] },
+};
+const DEFAULT_SPLIT = 'arnold';
+const ACTIVE_SPLIT_KEY = 'activeSplit';
+const ALL_BLOCKS = [...new Set(Object.values(SPLITS).flatMap(s => s.blocks))];
+
+let activeSplit = DEFAULT_SPLIT;
+let BLOCKS = SPLITS[DEFAULT_SPLIT].blocks;
+
+function applySplit(splitId) {
+  activeSplit = SPLITS[splitId] ? splitId : DEFAULT_SPLIT;
+  BLOCKS = SPLITS[activeSplit].blocks;
+}
 
 const DEFAULT_EXERCISE_LIBRARY = {
   'Chest / Back': ['Supine Chest Press','Incline Dumbbell Press','Pec Fly','Seated Cable Row (medium wide attachment)','Lat Pulldown','Cable Row','Pull-up','Face Pull'],
   'Shoulders / Arms': ['Chest Supported Row','Machine Curls','Overhead Cable Extension','Pushdown','Lateral Raise','Arnold Press','EZ Bar Curl','Hammer Curl','Skull Crusher'],
   'Legs': ['Hack Squat','Leg Curl','Leg Extension','Pin-Loaded Leg Press','Seated Calf Extension','Ab Crunch Machine','Romanian Deadlift','Leg Press','Standing Calf Raise'],
+  'Push': ['Supine Chest Press','Incline Dumbbell Press','Pec Fly','Shoulder Press','Lateral Raise','Pushdown','Overhead Cable Extension'],
+  'Pull': ['Lat Pulldown','Seated Cable Row (medium wide attachment)','Chest Supported Row','Pull-up','Face Pull','Machine Curls','Hammer Curl'],
+  'Accessory': ['Lateral Raise','Rear Delt Fly','EZ Bar Curl','Skull Crusher','Standing Calf Raise','Ab Crunch Machine'],
 };
 
 const CUSTOM_EXERCISE_LIBRARY_KEY = 'customExerciseLibrary';
@@ -667,7 +702,7 @@ function importBackup() {
       const parsed = JSON.parse(text);
       const imported = parsed.data || parsed;
       // Validate basic structure
-      const valid = BLOCKS.some(b => Array.isArray(imported[b]));
+      const valid = ALL_BLOCKS.some(b => Array.isArray(imported[b]));
       if (!valid) { alert('Invalid backup file.'); return; }
       if (!confirm(`This will replace all current data with the backup from ${parsed.exported ? new Date(parsed.exported).toLocaleDateString() : 'unknown date'}. Continue?`)) return;
       await createAutoBackup('pre-import-restore', true);
@@ -685,6 +720,26 @@ function importBackup() {
 }
 
 // ─── RENDER ──────────────────────────────────────────────────────────────────
+
+function renderSplitSelect() {
+  const select = document.getElementById('splitSelect');
+  if (!select) return;
+  select.innerHTML = Object.entries(SPLITS).map(([id, split]) =>
+    `<option value="${id}" ${id === activeSplit ? 'selected' : ''}>${split.name}</option>`
+  ).join('');
+}
+
+async function setActiveSplit(splitId) {
+  applySplit(splitId);
+  await storageSet(ACTIVE_SPLIT_KEY, activeSplit);
+  historyFilter = 'ALL';
+  historyExpanded = {};
+  if (currentBlock !== 'HISTORY') currentBlock = getSuggestedNextBlock();
+  renderSplitSelect();
+  renderTabs();
+  if (currentBlock === 'HISTORY') renderHistory();
+  else renderBlock();
+}
 
 function renderTabs() {
   const tabs = document.getElementById('tabs');
@@ -952,13 +1007,16 @@ let historyExpanded = {};
 function pillClass(block) {
   if (block.includes('Chest')) return 'pill-chest';
   if (block.includes('Shoulder')) return 'pill-shoulders';
+  if (block === 'Push') return 'pill-push';
+  if (block === 'Pull') return 'pill-pull';
+  if (block === 'Accessory') return 'pill-accessory';
   return 'pill-legs';
 }
 
 function renderHistory() {
   const container = document.getElementById('blockContent');
   let all = [];
-  BLOCKS.forEach(block => {
+  ALL_BLOCKS.forEach(block => {
     (state[block] || []).forEach((session, si) => all.push({ block, si, session }));
   });
   const filtered = historyFilter === 'ALL' ? all : all.filter(e => e.block === historyFilter);
@@ -967,7 +1025,8 @@ function renderHistory() {
     return historySort === 'newest' ? db.localeCompare(da) : da.localeCompare(db);
   });
 
-  const filterBtns = ['ALL', ...BLOCKS].map(f =>
+  const historyBlocks = ALL_BLOCKS.filter(b => BLOCKS.includes(b) || (state[b] || []).length);
+  const filterBtns = ['ALL', ...historyBlocks].map(f =>
     `<button class="filter-btn ${historyFilter === f ? 'active' : ''}" onclick="setHistoryFilter('${f.replace(/'/g,"\\'")}')">
       ${f === 'ALL' ? 'ALL BLOCKS' : f}
     </button>`
@@ -1180,18 +1239,21 @@ function formatDate(d) {
 
 async function init() {
   await openDB();
-  const [saved, savedBackups, savedBackupMeta, savedCustomExerciseLibrary] = await Promise.all([
+  const [saved, savedBackups, savedBackupMeta, savedCustomExerciseLibrary, savedSplit] = await Promise.all([
     storageGet('state'),
     storageGet(AUTO_BACKUP_KEY),
     storageGet(AUTO_BACKUP_META_KEY),
     storageGet(CUSTOM_EXERCISE_LIBRARY_KEY),
+    storageGet(ACTIVE_SPLIT_KEY),
   ]);
+  applySplit(savedSplit);
   state = saved || SEED_DATA;
   autoBackups = Array.isArray(savedBackups) ? savedBackups : [];
   backupMeta = savedBackupMeta || { lastSavedAt: null, lastAutoBackupAt: null };
   customExerciseLibrary = savedCustomExerciseLibrary || {};
   currentBlock = getSuggestedNextBlock();
   document.getElementById('todayBadge').textContent = formatDate(today());
+  renderSplitSelect();
   renderTabs();
   renderBlock();
   if (!saved) {
@@ -1209,8 +1271,10 @@ init().catch(err => {
   autoBackups = localGet(AUTO_BACKUP_KEY) || [];
   backupMeta = localGet(AUTO_BACKUP_META_KEY) || { lastSavedAt: null, lastAutoBackupAt: null };
   customExerciseLibrary = localGet(CUSTOM_EXERCISE_LIBRARY_KEY) || {};
+  applySplit(localGet(ACTIVE_SPLIT_KEY));
   currentBlock = getSuggestedNextBlock();
   document.getElementById('todayBadge').textContent = formatDate(today());
+  renderSplitSelect();
   renderTabs();
   renderBlock();
   if (!localGet('state') && localGet('ironRecord_v2')) {
